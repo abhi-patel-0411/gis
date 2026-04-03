@@ -1,0 +1,51 @@
+import dynamic from "next/dynamic";
+import Link from "next/link";
+
+const MapComponent = dynamic(() => import("@/components/Map"), {
+  loading: () => <div className="map-skeleton">Loading map...</div>,
+});
+
+export default function AdvancedPage() {
+  return (
+    <main className="min-h-screen bg-slate-100">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex w-full max-w-400 items-center justify-between px-6 py-4">
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">
+              Advanced Controls
+            </h1>
+            <p className="text-xs text-slate-500">
+              Demonstrates renderer categories, class breaks, popups, tile
+              layers, and query workflows.
+            </p>
+          </div>
+
+          <nav className="flex items-center gap-2 text-sm font-medium">
+            <Link
+              href="/"
+              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-slate-700 hover:bg-slate-50"
+            >
+              Home
+            </Link>
+            <Link
+              href="/map-page"
+              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-slate-700 hover:bg-slate-50"
+            >
+              West Coast
+            </Link>
+            <Link
+              href="/advanced"
+              className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-blue-700"
+            >
+              Advanced
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      <section className="mx-auto w-full max-w-400 px-6 py-6">
+        <MapComponent center={[-87.6298, 41.8781]} zoom={10} />
+      </section>
+    </main>
+  );
+}
