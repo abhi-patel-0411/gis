@@ -26,8 +26,20 @@ interface MapComponentProps {
 const CDN_OPTIONS = { css: false, url: "https://js.arcgis.com/4.31/" };
 const EARTHQUAKE_LAYER_URL =
   "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/USGS_Seismic_Data_v1/FeatureServer/0";
+
+/**
+ * MENTAL MODEL: TILE LAYER
+ * TileLayer = photo tiles from server (fixed images/raster)
+ * These are pre-rendered images, great for satellite or topographic backgrounds.
+ */
 const RASTER_TILE_URL =
   "https://services.arcgisonline.com/arcgis/rest/services/World_Topo_Map/MapServer";
+
+/**
+ * MENTAL MODEL: VECTOR TILE LAYER
+ * VectorTileLayer = smart tiles you can style (vector data rendered on client)
+ * High performance, crisp at all zoom levels, and can be restyled dynamically.
+ */
 const VECTOR_TILE_URL =
   "https://basemaps.arcgis.com/arcgis/rest/services/World_Basemap_v2/VectorTileServer";
 const DEFAULT_CENTER: [number, number] = [-74.006, 40.7128];
@@ -154,11 +166,19 @@ export default function MapComponent({
           opacity: 0.9,
         });
 
+        /**
+         * MENTAL MODEL: GRAPHICS LAYER
+         * GraphicsLayer = your own drawings on the map
+         * Used for temporary markers, lines, or polygons that aren't from a service.
+         */
         const graphicsLayer = new GraphicsLayer({
           id: "temporary-graphics-layer",
           title: "Temporary Graphics",
         });
 
+        /**
+         * Use TileLayer for raster-based background imagery (MENTAL MODEL: photo tiles from server)
+         */
         const tileLayer = new TileLayer({
           url: RASTER_TILE_URL,
           title: "World Topo (Raster Tiles)",
@@ -166,6 +186,9 @@ export default function MapComponent({
           opacity: 0.65,
         });
 
+        /**
+         * Use VectorTileLayer for modern vector-based maps (MENTAL MODEL: smart tiles you can style)
+         */
         const vectorTileLayer = new VectorTileLayer({
           url: VECTOR_TILE_URL,
           title: "World Streets (Vector Tiles)",
@@ -208,8 +231,40 @@ export default function MapComponent({
         setTileLayerVisible(false);
         setVectorTileLayerVisible(false);
         setMarkerCount(0);
+
+        /**
+         * USER INTERACTION: CLICK TO ADD MARKER
+         * Listening for clicks on the MapView to add custom graphics.
+         */
+        view.on("click", async (event: any) => {
+          const [Graphic, SimpleMarkerSymbol] = (await loadModules(
+            ["esri/Graphic", "esri/symbols/SimpleMarkerSymbol"],
+            CDN_OPTIONS,
+          )) as any[];
+
+          const markerSymbol = new SimpleMarkerSymbol({
+            style: "circle",
+            color: [6, 182, 212, 0.8], // Cyan color
+            size: "12px",
+            outline: { color: [255, 255, 255], width: 1.5 },
+          });
+
+          const clickGraphic = new Graphic({
+            geometry: event.mapPoint,
+            symbol: markerSymbol,
+            popupTemplate: {
+              title: "Dropped Pin",
+              content: `Coordinates: ${event.mapPoint.longitude.toFixed(4)}, ${event.mapPoint.latitude.toFixed(4)}`,
+            },
+          });
+
+          graphicsLayer.add(clickGraphic);
+          setMarkerCount(graphicsLayer.graphics.length);
+          setQuerySummary(`Pin dropped at ${event.mapPoint.longitude.toFixed(3)}, ${event.mapPoint.latitude.toFixed(3)}`);
+        });
+
         setQuerySummary(
-          "Map loaded. You can now style, query, and annotate data.",
+          "Map loaded. Click anywhere to drop a pin, or use the sidebar.",
         );
       } catch (err) {
         console.error("Failed to initialize map:", err);
@@ -303,6 +358,11 @@ export default function MapComponent({
     }
   };
 
+  /**
+   * MENTAL MODEL: CLASS BREAKS RENDERER
+   * ClassBreaksRenderer = color scale for numbers
+   * We divide numeric data into ranges (breaks) and assign a unique symbol to each.
+   */
   const applyClassBreakRenderer = async () => {
     const layer = layerInstanceRef.current;
     if (!layer) return;
@@ -435,6 +495,11 @@ export default function MapComponent({
     );
   };
 
+  /**
+   * MENTAL MODEL: QUERYING
+   * Querying = SQL for your map data
+   * We use spatial or attribute criteria to filter and retrieve specific data.
+   */
   const queryTopFeatures = async () => {
     const layer = layerInstanceRef.current;
     const graphicsLayer = graphicsLayerRef.current;

@@ -26,18 +26,6 @@ export default function Home() {
             >
               Home
             </Link>
-            <Link
-              href="/map-page"
-              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-slate-700 hover:bg-slate-50"
-            >
-              West Coast
-            </Link>
-            <Link
-              href="/advanced"
-              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-slate-700 hover:bg-slate-50"
-            >
-              Advanced
-            </Link>
           </nav>
         </div>
       </header>

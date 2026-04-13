@@ -193,45 +193,45 @@ export async function applyClassBreaksRenderer(
     const isPopulationField = field.toUpperCase().includes("POPULATION");
     const breaks = isPopulationField
       ? [
-          {
-            minValue: 0,
-            maxValue: 10000,
-            symbol: lowSymbol,
-            label: "< 10K",
-          },
-          {
-            minValue: 10000,
-            maxValue: 100000,
-            symbol: mediumSymbol,
-            label: "10K - 100K",
-          },
-          {
-            minValue: 100000,
-            maxValue: Number.MAX_VALUE,
-            symbol: highSymbol,
-            label: "> 100K",
-          },
-        ]
+        {
+          minValue: 0,
+          maxValue: 10000,
+          symbol: lowSymbol,
+          label: "< 10K",
+        },
+        {
+          minValue: 10000,
+          maxValue: 100000,
+          symbol: mediumSymbol,
+          label: "10K - 100K",
+        },
+        {
+          minValue: 100000,
+          maxValue: Number.MAX_VALUE,
+          symbol: highSymbol,
+          label: "> 100K",
+        },
+      ]
       : [
-          {
-            minValue: -Number.MAX_VALUE,
-            maxValue: 2.5,
-            symbol: lowSymbol,
-            label: "Low",
-          },
-          {
-            minValue: 2.5,
-            maxValue: 5,
-            symbol: mediumSymbol,
-            label: "Moderate",
-          },
-          {
-            minValue: 5,
-            maxValue: Number.MAX_VALUE,
-            symbol: highSymbol,
-            label: "High",
-          },
-        ];
+        {
+          minValue: -Number.MAX_VALUE,
+          maxValue: 2.5,
+          symbol: lowSymbol,
+          label: "Low",
+        },
+        {
+          minValue: 2.5,
+          maxValue: 5,
+          symbol: mediumSymbol,
+          label: "Moderate",
+        },
+        {
+          minValue: 5,
+          maxValue: Number.MAX_VALUE,
+          symbol: highSymbol,
+          label: "High",
+        },
+      ];
 
     const renderer = new ClassBreaksRenderer({
       field,
