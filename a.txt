@@ -3,7 +3,6 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Script from "next/script";
-import { useMapStore } from "../store/map-store";
 
 type SelectedFeature = {
   id: number | string;
@@ -40,11 +39,6 @@ type RouteStep = {
   distanceMeter: number;
   type?: string;
   modifier?: string;
-};
-
-type SidebarNavItem = {
-  id: string;
-  label: string;
 };
 
 function DirectionIcon({
@@ -134,7 +128,7 @@ function AddressSearchInput({
           }));
         setSuggestions(nextSuggestions);
         setActiveIndex(-1);
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setSuggestions([]);
           setActiveIndex(-1);
@@ -254,6 +248,10 @@ const INITIAL_VIEW = {
 
 const GEOCODE_SERVICE_URL =
   "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer";
+const ROUTE_SERVICE_URL =
+  "https://route-api.arcgis.com/arcgis/rest/services/World/Route/NAServer/Route_World/solve";
+const ROUTE_SERVICE_FALLBACK_URL =
+  "https://route.arcgis.com/arcgis/rest/services/World/Route/NAServer/Route_World/solve";
 const ARCGIS_API_KEY = process.env.NEXT_PUBLIC_ARCGIS_API_KEY;
 
 export default function ArcGISWidgets() {
@@ -274,60 +272,8 @@ export default function ArcGISWidgets() {
 
   const [mapLoaded, setMapLoaded] = useState(false);
   const [layerError, setLayerError] = useState<string | null>(null);
-  // Local selected feature state synced with global Zustand store
-  const [selectedFeatureState, _setSelectedFeatureState] =
+  const [selectedFeature, setSelectedFeature] =
     useState<SelectedFeature | null>(null);
-  const selectedFeature = selectedFeatureState;
-
-  const setGlobalSelectedFeature = useMapStore((s) => s.setSelectedFeature);
-  const globalSelectedFeature = useMapStore((s) => s.selectedFeature);
-  const activeBasemap = useMapStore((s) => s.activeBasemap);
-  const setBasemapGlobal = useMapStore((s) => s.setBasemap);
-  const isDrawingModeGlobal = useMapStore((s) => s.isDrawingMode);
-  const setDrawingModeGlobal = useMapStore((s) => s.setDrawingMode);
-
-  const setSelectedFeature = (feature: SelectedFeature | null) => {
-    _setSelectedFeatureState(feature);
-    try {
-      setGlobalSelectedFeature(
-        feature
-          ? {
-              id:
-                typeof feature.id === "number"
-                  ? feature.id
-                  : Number(feature.id) || 0,
-              name: feature.name ?? "",
-              type: feature.layerName ?? feature.status ?? "",
-              attributes: { ...(feature as any) },
-            }
-          : null,
-      );
-    } catch {}
-  };
-
-  useEffect(() => {
-    if (!globalSelectedFeature) {
-      _setSelectedFeatureState(null);
-    } else {
-      _setSelectedFeatureState({
-        id: globalSelectedFeature.id,
-        name: globalSelectedFeature.name,
-        status: String(globalSelectedFeature.attributes?.status ?? ""),
-        layerName: String(globalSelectedFeature.type ?? ""),
-      });
-    }
-  }, [globalSelectedFeature]);
-
-  // When the global basemap changes, update the map instance if ready
-  useEffect(() => {
-    if (!viewRef.current) return;
-    try {
-      if (activeBasemap && viewRef.current.map) {
-        viewRef.current.map.basemap = activeBasemap;
-      }
-    } catch {}
-  }, [activeBasemap]);
-
   const [layerVisibility, setLayerVisibility] = useState<LayerVisibility>({
     earthquakes: true,
     population: true,
@@ -374,33 +320,6 @@ export default function ArcGISWidgets() {
   const [crudMessage, setCrudMessage] = useState<string | null>(null);
   const [crudLoading, setCrudLoading] = useState(false);
 
-  const [clusterEnabled, setClusterEnabled] = useState(true);
-  const [clusterOnEarthquakes, setClusterOnEarthquakes] = useState(true);
-  const [clusterOnPopulation, setClusterOnPopulation] = useState(true);
-  const [clusterRadiusPx, setClusterRadiusPx] = useState(70);
-  const [clusterMinSizePx, setClusterMinSizePx] = useState(20);
-  const [clusterMaxSizePx, setClusterMaxSizePx] = useState(56);
-  const [clusterStatus, setClusterStatus] = useState(
-    "Cluster engine is ready. Enable map to apply settings.",
-  );
-  const [clusterSnapshot, setClusterSnapshot] = useState(
-    "No cluster metrics available yet.",
-  );
-
-  const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
-  const [activeSidebarSection, setActiveSidebarSection] = useState("map");
-
-  const sidebarNavItems: SidebarNavItem[] = [
-    { id: "map", label: "Map" },
-    { id: "cluster", label: "Clusters" },
-    { id: "drawing", label: "Drawing" },
-    { id: "analysis", label: "Analysis" },
-    { id: "data", label: "Data" },
-    { id: "geocode", label: "Geocode" },
-    { id: "routing", label: "Routing" },
-    { id: "status", label: "Status" },
-  ];
-
   const envApiKey = (ARCGIS_API_KEY ?? "").trim();
   const resolvedApiKey = envApiKey || manualApiKey.trim();
 
@@ -421,7 +340,7 @@ export default function ArcGISWidgets() {
     if (!engine || !point) return null;
     try {
       return engine.buffer(point, Number(radiusKm), "kilometers");
-    } catch {
+    } catch (e) {
       return null;
     }
   };
@@ -431,7 +350,7 @@ export default function ArcGISWidgets() {
     if (!engine || !point || !zone) return false;
     try {
       return !!engine.contains(zone, point);
-    } catch {
+    } catch (e) {
       return false;
     }
   };
@@ -441,7 +360,7 @@ export default function ArcGISWidgets() {
     if (!engine || !p1 || !p2) return NaN;
     try {
       return engine.distance(p1, p2, "kilometers");
-    } catch {
+    } catch (e) {
       return NaN;
     }
   };
@@ -451,7 +370,7 @@ export default function ArcGISWidgets() {
     if (!engine || !poly1 || !poly2) return null;
     try {
       return engine.intersect(poly1, poly2);
-    } catch {
+    } catch (e) {
       return null;
     }
   };
@@ -461,7 +380,7 @@ export default function ArcGISWidgets() {
     if (!engine || !polygons || polygons.length === 0) return null;
     try {
       return engine.union(polygons);
-    } catch {
+    } catch (e) {
       return null;
     }
   };
@@ -672,31 +591,26 @@ export default function ArcGISWidgets() {
     [],
   );
 
-  const updateFeatureStatus = useCallback(
-    async (objectId: number, status: string) => {
-      const featureLayer = editableLayerRef.current;
-      const Graphic = graphicCtorRef.current;
-      if (!featureLayer || !Graphic) {
-        throw new Error("Editable feature layer is not ready.");
-      }
+  const updateFeatureStatus = useCallback(async (objectId: number, status: string) => {
+    const featureLayer = editableLayerRef.current;
+    const Graphic = graphicCtorRef.current;
+    if (!featureLayer || !Graphic) {
+      throw new Error("Editable feature layer is not ready.");
+    }
 
-      const feature = new Graphic({
-        attributes: { OBJECTID: objectId, STATUS: status },
-      });
+    const feature = new Graphic({
+      attributes: { OBJECTID: objectId, STATUS: status },
+    });
 
-      const result = await featureLayer.applyEdits({
-        updateFeatures: [feature],
-      });
+    const result = await featureLayer.applyEdits({
+      updateFeatures: [feature],
+    });
 
-      const updateResult = result?.updateFeatureResults?.[0];
-      if (updateResult?.error) {
-        throw new Error(
-          updateResult.error.message ?? "Failed to update feature.",
-        );
-      }
-    },
-    [],
-  );
+    const updateResult = result?.updateFeatureResults?.[0];
+    if (updateResult?.error) {
+      throw new Error(updateResult.error.message ?? "Failed to update feature.");
+    }
+  }, []);
 
   const deleteFeature = useCallback(async (objectId: number) => {
     const featureLayer = editableLayerRef.current;
@@ -715,9 +629,7 @@ export default function ArcGISWidgets() {
 
     const deleteResult = result?.deleteFeatureResults?.[0];
     if (deleteResult?.error) {
-      throw new Error(
-        deleteResult.error.message ?? "Failed to delete feature.",
-      );
+      throw new Error(deleteResult.error.message ?? "Failed to delete feature.");
     }
   }, []);
 
@@ -837,201 +749,6 @@ export default function ArcGISWidgets() {
     });
   }, []);
 
-  const createClusterReduction = useCallback(
-    (layerLabel: string) => {
-      const normalizedMaxSize = Math.max(
-        clusterMaxSizePx,
-        clusterMinSizePx + 6,
-      );
-      return {
-        type: "cluster",
-        clusterRadius: `${clusterRadiusPx}px`,
-        clusterMinSize: `${clusterMinSizePx}px`,
-        clusterMaxSize: `${normalizedMaxSize}px`,
-        popupTemplate: {
-          title: `${layerLabel} Cluster`,
-          content:
-            "This cluster contains <b>{cluster_count}</b> records.<br/>Click to zoom in and inspect member features.",
-        },
-        labelingInfo: [
-          {
-            deconflictionStrategy: "none",
-            labelExpressionInfo: {
-              expression: "Text($feature.cluster_count, '#,###')",
-            },
-            symbol: {
-              type: "text",
-              color: "#ffffff",
-              haloColor: "#0f172a",
-              haloSize: 1,
-              font: {
-                family: "Avenir Next LT Pro",
-                weight: "bold",
-                size: 11,
-              },
-            },
-          },
-        ],
-      };
-    },
-    [clusterMaxSizePx, clusterMinSizePx, clusterRadiusPx],
-  );
-
-  const refreshClusterSnapshot = useCallback(async () => {
-    const metricParts: string[] = [];
-    const targets: Array<{ enabled: boolean; label: string; layer: any }> = [
-      {
-        enabled: clusterOnEarthquakes,
-        label: "Earthquakes",
-        layer: earthquakesLayerRef.current,
-      },
-      {
-        enabled: clusterOnPopulation,
-        label: "Population",
-        layer: populationLayerRef.current,
-      },
-    ];
-
-    await Promise.all(
-      targets.map(async ({ enabled, label, layer }) => {
-        if (!enabled || !clusterEnabled || !layer) return;
-        try {
-          const count = await layer.queryFeatureCount({ where: "1=1" });
-          metricParts.push(`${label}: ${count}`);
-        } catch {
-          metricParts.push(`${label}: n/a`);
-        }
-      }),
-    );
-
-    if (!clusterEnabled) {
-      setClusterSnapshot("Cluster engine disabled.");
-      return;
-    }
-
-    if (metricParts.length === 0) {
-      setClusterSnapshot("No layer selected for clustering.");
-      return;
-    }
-
-    setClusterSnapshot(metricParts.join(" | "));
-  }, [clusterEnabled, clusterOnEarthquakes, clusterOnPopulation]);
-
-  const applyClusterConfiguration = useCallback(
-    async (announce = true) => {
-      const targets: Array<{ enabled: boolean; label: string; layer: any }> = [
-        {
-          enabled: clusterOnEarthquakes,
-          label: "Earthquake",
-          layer: earthquakesLayerRef.current,
-        },
-        {
-          enabled: clusterOnPopulation,
-          label: "Population",
-          layer: populationLayerRef.current,
-        },
-      ];
-
-      targets.forEach(({ enabled, label, layer }) => {
-        if (!layer) return;
-
-        if (clusterEnabled && enabled) {
-          layer.featureReduction = createClusterReduction(label);
-        } else {
-          layer.featureReduction = null;
-        }
-      });
-
-      await refreshClusterSnapshot();
-
-      if (!announce) return;
-
-      if (!clusterEnabled) {
-        setClusterStatus(
-          "Clustering disabled. Features are rendered individually.",
-        );
-        return;
-      }
-
-      const activeLayers = [
-        clusterOnEarthquakes ? "earthquakes" : null,
-        clusterOnPopulation ? "population" : null,
-      ].filter(Boolean);
-
-      if (activeLayers.length === 0) {
-        setClusterStatus("Clustering is on, but no target layer is selected.");
-        return;
-      }
-
-      setClusterStatus(
-        `Clusters applied on ${activeLayers.join(" + ")} at ${clusterRadiusPx}px radius.`,
-      );
-    },
-    [
-      clusterEnabled,
-      clusterOnEarthquakes,
-      clusterOnPopulation,
-      clusterRadiusPx,
-      createClusterReduction,
-      refreshClusterSnapshot,
-    ],
-  );
-
-  const zoomToClusterCoverage = useCallback(async () => {
-    const view = viewRef.current;
-    if (!view) return;
-
-    const candidateLayers: any[] = [];
-    if (clusterEnabled && clusterOnEarthquakes && earthquakesLayerRef.current) {
-      candidateLayers.push(earthquakesLayerRef.current);
-    }
-    if (clusterEnabled && clusterOnPopulation && populationLayerRef.current) {
-      candidateLayers.push(populationLayerRef.current);
-    }
-
-    if (candidateLayers.length === 0) {
-      setClusterStatus("Select at least one clustered layer before zooming.");
-      return;
-    }
-
-    const extents: any[] = [];
-    for (const layer of candidateLayers) {
-      try {
-        const queryResult = await layer.queryExtent({ where: "1=1" });
-        if (queryResult?.extent) extents.push(queryResult.extent);
-      } catch {
-        // Continue with available extents.
-      }
-    }
-
-    if (!extents.length) {
-      setClusterStatus("No cluster extent is available for current filters.");
-      return;
-    }
-
-    try {
-      await view.goTo(extents, { padding: 64 });
-      setClusterStatus("Zoomed to clustered operational footprint.");
-    } catch {
-      setClusterStatus("Unable to zoom to cluster footprint.");
-    }
-  }, [clusterEnabled, clusterOnEarthquakes, clusterOnPopulation]);
-
-  const registerSectionRef = useCallback(
-    (id: string) => (node: HTMLElement | null) => {
-      sectionRefs.current[id] = node;
-    },
-    [],
-  );
-
-  const navigateToSection = useCallback((id: string) => {
-    setActiveSidebarSection(id);
-    sectionRefs.current[id]?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }, []);
-
   const buildSearchParams = useCallback(
     (params: Record<string, string>) => {
       const searchParams = new URLSearchParams({
@@ -1080,6 +797,47 @@ export default function ArcGISWidgets() {
       return payload;
     },
     [],
+  );
+
+  const requestRouteJson = useCallback(
+    async (params: URLSearchParams) => {
+      const routeUrls = [ROUTE_SERVICE_URL, ROUTE_SERVICE_FALLBACK_URL];
+      let lastError: Error | null = null;
+
+      for (const routeUrl of routeUrls) {
+        try {
+          const response = await fetch(routeUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              ...(resolvedApiKey
+                ? {
+                    "X-Esri-Authorization": `Bearer ${resolvedApiKey}`,
+                  }
+                : {}),
+            },
+            body: params.toString(),
+          });
+
+          const payload = await response.json();
+
+          if (!response.ok || payload?.error) {
+            throw new Error(
+              payload?.error?.message ??
+                `Route request failed with ${response.status}.`,
+            );
+          }
+
+          return payload;
+        } catch (err: any) {
+          lastError =
+            err instanceof Error ? err : new Error("Route request failed.");
+        }
+      }
+
+      throw lastError ?? new Error("Route request failed.");
+    },
+    [resolvedApiKey],
   );
 
   const clearGeocodeGraphics = useCallback(() => {
@@ -1333,7 +1091,7 @@ export default function ArcGISWidgets() {
               latitude: Number(candidate.location.y),
             });
           }
-        } catch {
+        } catch (e) {
           console.warn("Skipping address due to error:", address);
         }
       }
@@ -1584,7 +1342,6 @@ export default function ArcGISWidgets() {
           "esri/widgets/Search",
           "esri/widgets/LayerList",
           "esri/widgets/Legend",
-          "esri/config",
         ],
         (
           ArcGISMap: any,
@@ -1602,29 +1359,12 @@ export default function ArcGISWidgets() {
           Search: any,
           LayerList: any,
           Legend: any,
-          esriConfig: any,
         ) => {
           if (destroyed) return;
 
           graphicCtorRef.current = Graphic;
 
-          // Configure API key for ArcGIS services (vector-tile basemaps, routing, etc.)
-          try {
-            if (
-              esriConfig &&
-              typeof resolvedApiKey === "string" &&
-              resolvedApiKey.length > 0
-            ) {
-              esriConfig.apiKey = resolvedApiKey;
-              console.log("esriConfig.apiKey set");
-            }
-          } catch (cfgErr) {
-            console.warn("Failed to set esriConfig.apiKey:", cfgErr);
-          }
-
-          const map = new ArcGISMap({
-            basemap: activeBasemap ?? "arcgis-navigation",
-          });
+          const map = new ArcGISMap({ basemap: "streets-navigation-vector" });
           const view = new MapView({
             container: mapRef.current,
             map,
@@ -1633,27 +1373,6 @@ export default function ArcGISWidgets() {
           });
 
           viewRef.current = view;
-
-          // Listen for layer view creation failures to capture detailed errors
-          try {
-            if (view && typeof view.on === "function") {
-              view.on("layerview-create-error", (evt: any) => {
-                console.error("layerview-create-error:", evt);
-                try {
-                  setLayerError(
-                    evt?.error?.message ??
-                      (typeof evt === "object"
-                        ? JSON.stringify(evt)
-                        : String(evt)),
-                  );
-                } catch {
-                  setLayerError("Layer view creation error (see console).");
-                }
-              });
-            }
-          } catch {
-            // ignore event wiring failures
-          }
 
           try {
             view.ui.remove("zoom");
@@ -1860,7 +1579,7 @@ export default function ArcGISWidgets() {
                   info = `Point: (${lon}, ${lat})`;
                 }
                 setDrawingInfo(info);
-              } catch {
+              } catch (e) {
                 // ignore geometry errors
               }
             }
@@ -1900,7 +1619,7 @@ export default function ArcGISWidgets() {
                 }
               },
             );
-          } catch {
+          } catch (e) {
             // ignore if measurement widgets are not available
           }
 
@@ -2077,7 +1796,7 @@ export default function ArcGISWidgets() {
                       </div>
                     </div>`;
                   }
-                } catch {
+                } catch (e) {
                   // If failing, fallback cleanly
                   if (view.popup.visible) {
                     view.popup.title = "Location Error";
@@ -2088,50 +1807,6 @@ export default function ArcGISWidgets() {
               }
 
               const attrs = firstMatch.graphic.attributes ?? {};
-
-              if (attrs.cluster_count != null) {
-                // To query the precise features inside the cluster and show them:
-                try {
-                  const layer = firstMatch.graphic.layer;
-                  if (layer) {
-                    const query = layer.createQuery();
-                    query.aggregateIds = [attrs.cluster_id];
-                    // Also filter out any spatial criteria if needed here
-                    const { features } = await layer.queryFeatures(query);
-                    const listHtml = features
-                      .slice(0, 5)
-                      .map(
-                        (f: any) =>
-                          `<li>${f.attributes.NAME ?? "Unnamed"} (ID: ${f.attributes.OBJECTID ?? "N/A"})</li>`,
-                      )
-                      .join("");
-
-                    view.popup.open({
-                      title: `${layer.title ?? "Layer"} Cluster`,
-                      content: `
-                        <div style="font-size:12px; color:#334155;">
-                          <div>This cluster aggregates <b>${attrs.cluster_count}</b> records.</div>
-                          <br/>
-                          <div><strong>Sample Features in Cluster:</strong></div>
-                          <ul style="padding-left: 20px; text-transform: capitalize;">${listHtml}${features.length > 5 ? "<li>...</li>" : ""}</ul>
-                        </div>
-                      `,
-                      location: event.mapPoint,
-                    });
-                  }
-                } catch (queryErr) {
-                  console.error("Cluster query failed", queryErr);
-                }
-
-                setSelectedFeature({
-                  id: attrs.cluster_id ?? "Cluster",
-                  name: `${firstMatch.graphic.layer?.title ?? "Layer"} Cluster`,
-                  status: `${attrs.cluster_count} records grouped`,
-                  layerName: firstMatch.graphic.layer?.title ?? "Cluster Layer",
-                });
-                return;
-              }
-
               setSelectedFeature({
                 id: attrs.OBJECTID ?? "N/A",
                 name: attrs.NAME ?? "Unnamed",
@@ -2239,17 +1914,12 @@ export default function ArcGISWidgets() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!mapLoaded) return;
-    void applyClusterConfiguration();
-  }, [applyClusterConfiguration, mapLoaded]);
-
   const panelCardStyle: React.CSSProperties = {
-    border: "1px solid rgba(15, 23, 42, 0.10)",
-    borderRadius: 12,
-    background: "linear-gradient(180deg,#ffffff 0%,#f8fafc 100%)",
-    padding: 11,
-    boxShadow: "0 10px 22px rgba(15, 23, 42, 0.08)",
+    border: "1px solid #dbe2ea",
+    borderRadius: 10,
+    background: "#ffffff",
+    padding: 10,
+    boxShadow: "0 1px 2px rgba(15, 23, 42, 0.06)",
   };
 
   const sectionTitleStyle: React.CSSProperties = {
@@ -2257,30 +1927,14 @@ export default function ArcGISWidgets() {
     fontWeight: 700,
     letterSpacing: 0.3,
     marginBottom: 8,
-    color: "#1e293b",
+    color: "#0f172a",
     textTransform: "uppercase",
   };
-
-  const navChipStyle = (id: string): React.CSSProperties => ({
-    border:
-      activeSidebarSection === id ? "1px solid #0f766e" : "1px solid #cbd5e1",
-    background:
-      activeSidebarSection === id
-        ? "linear-gradient(180deg,#ccfbf1 0%,#99f6e4 100%)"
-        : "#ffffff",
-    color: activeSidebarSection === id ? "#134e4a" : "#334155",
-    borderRadius: 999,
-    padding: "5px 10px",
-    fontSize: 11,
-    fontWeight: 700,
-    cursor: "pointer",
-  });
 
   return (
     <>
       <Script src="https://js.arcgis.com/4.28/" strategy="afterInteractive" />
       <div
-        className="ops-console-shell"
         style={{
           width: "100%",
           minHeight: 700,
@@ -2294,7 +1948,6 @@ export default function ArcGISWidgets() {
         }}
       >
         <aside
-          className="ops-console-sidebar"
           style={{
             flex: "0 0 370px",
             width: 370,
@@ -2309,50 +1962,23 @@ export default function ArcGISWidgets() {
             overflowY: "auto",
           }}
         >
-          <div className="ops-hero-card" style={panelCardStyle}>
+          <div style={panelCardStyle}>
             <div
               style={{
-                fontSize: 16,
+                fontSize: 15,
                 fontWeight: 800,
                 color: "#0f172a",
                 marginBottom: 4,
               }}
             >
-              Enterprise Geospatial Operations Console
+              ArcGIS Operations Console
             </div>
             <div style={{ fontSize: 12, color: "#475569" }}>
-              Smart navigation, clustering intelligence, geocoding, routing, and
-              spatial analytics in one command center.
+              Geocoding, routing, directions, and layer controls in one panel.
             </div>
           </div>
 
           <section style={panelCardStyle}>
-            <div style={sectionTitleStyle}>Quick Navigation</div>
-            <div
-              style={{
-                display: "flex",
-                gap: 6,
-                flexWrap: "wrap",
-              }}
-            >
-              {sidebarNavItems.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  style={navChipStyle(item.id)}
-                  onClick={() => navigateToSection(item.id)}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section
-            className="ops-card"
-            ref={registerSectionRef("map")}
-            style={panelCardStyle}
-          >
             <div style={sectionTitleStyle}>Map & Layers</div>
             <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
               <button type="button" onClick={zoomIn} disabled={!mapLoaded}>
@@ -2363,59 +1989,6 @@ export default function ArcGISWidgets() {
               </button>
               <button type="button" onClick={resetExtent} disabled={!mapLoaded}>
                 Home
-              </button>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-                marginBottom: 8,
-              }}
-            >
-              <label
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  fontSize: 13,
-                }}
-              >
-                Basemap:
-                <select
-                  value={activeBasemap}
-                  onChange={(e) => setBasemapGlobal(e.target.value)}
-                  disabled={!mapLoaded}
-                >
-                  <option value="arcgis-navigation">Navigation</option>
-                  <option value="streets-navigation-vector">Streets</option>
-                  <option value="dark-gray-vector">Dark Gray</option>
-                  <option value="topo-vector">Topographic</option>
-                  <option value="satellite">Satellite</option>
-                </select>
-              </label>
-              <label
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  fontSize: 13,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={isDrawingModeGlobal}
-                  onChange={(e) => setDrawingModeGlobal(e.target.checked)}
-                />
-                Drawing Mode
-              </label>
-              <button
-                type="button"
-                onClick={() => setGlobalSelectedFeature(null)}
-                disabled={!mapLoaded}
-              >
-                Clear Selection
               </button>
             </div>
 
@@ -2452,195 +2025,7 @@ export default function ArcGISWidgets() {
             </label>
           </section>
 
-          <section
-            className="ops-card"
-            ref={registerSectionRef("cluster")}
-            style={panelCardStyle}
-          >
-            <div style={sectionTitleStyle}>Operational Clustering</div>
-
-            <label
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-                marginBottom: 6,
-                fontSize: 13,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={clusterEnabled}
-                onChange={(event) => setClusterEnabled(event.target.checked)}
-              />
-              Enable clustering engine
-            </label>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 6,
-              }}
-            >
-              <label
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  fontSize: 12,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={clusterOnEarthquakes}
-                  onChange={(event) =>
-                    setClusterOnEarthquakes(event.target.checked)
-                  }
-                />
-                Earthquakes
-              </label>
-              <label
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  fontSize: 12,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={clusterOnPopulation}
-                  onChange={(event) =>
-                    setClusterOnPopulation(event.target.checked)
-                  }
-                />
-                Population
-              </label>
-            </div>
-
-            <div
-              style={{
-                marginTop: 8,
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 6,
-              }}
-            >
-              <div>
-                <div
-                  style={{ fontSize: 11, color: "#475569", marginBottom: 4 }}
-                >
-                  Radius (px)
-                </div>
-                <input
-                  type="number"
-                  min={24}
-                  max={160}
-                  value={clusterRadiusPx}
-                  onChange={(event) =>
-                    setClusterRadiusPx(Number(event.target.value) || 70)
-                  }
-                  style={{ width: "100%", padding: "7px 8px", fontSize: 12 }}
-                />
-              </div>
-              <div>
-                <div
-                  style={{ fontSize: 11, color: "#475569", marginBottom: 4 }}
-                >
-                  Min size (px)
-                </div>
-                <input
-                  type="number"
-                  min={10}
-                  max={64}
-                  value={clusterMinSizePx}
-                  onChange={(event) =>
-                    setClusterMinSizePx(Number(event.target.value) || 20)
-                  }
-                  style={{ width: "100%", padding: "7px 8px", fontSize: 12 }}
-                />
-              </div>
-            </div>
-
-            <div style={{ marginTop: 7 }}>
-              <div style={{ fontSize: 11, color: "#475569", marginBottom: 4 }}>
-                Max size (px)
-              </div>
-              <input
-                type="number"
-                min={16}
-                max={90}
-                value={clusterMaxSizePx}
-                onChange={(event) =>
-                  setClusterMaxSizePx(Number(event.target.value) || 56)
-                }
-                style={{ width: "100%", padding: "7px 8px", fontSize: 12 }}
-              />
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                gap: 6,
-                marginTop: 9,
-                flexWrap: "wrap",
-              }}
-            >
-              <button
-                type="button"
-                disabled={!mapLoaded}
-                onClick={() => {
-                  void applyClusterConfiguration();
-                }}
-              >
-                Apply Cluster Settings
-              </button>
-              <button
-                type="button"
-                disabled={!mapLoaded}
-                onClick={() => {
-                  void zoomToClusterCoverage();
-                }}
-              >
-                Zoom to Cluster Coverage
-              </button>
-              <button
-                type="button"
-                disabled={!mapLoaded}
-                onClick={() => {
-                  void refreshClusterSnapshot();
-                }}
-              >
-                Refresh Snapshot
-              </button>
-            </div>
-
-            <div
-              style={{
-                marginTop: 8,
-                fontSize: 12,
-                border: "1px solid #99f6e4",
-                borderRadius: 8,
-                background: "#f0fdfa",
-                padding: 8,
-                color: "#134e4a",
-              }}
-            >
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                {clusterStatus}
-              </div>
-              <div style={{ fontSize: 11, color: "#0f766e" }}>
-                {clusterSnapshot}
-              </div>
-            </div>
-          </section>
-
-          <section
-            className="ops-card"
-            ref={registerSectionRef("drawing")}
-            style={panelCardStyle}
-          >
+          <section style={panelCardStyle}>
             <div style={sectionTitleStyle}>Drawing & Measurement</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button
@@ -2775,11 +2160,7 @@ export default function ArcGISWidgets() {
             )}
           </section>
 
-          <section
-            className="ops-card"
-            ref={registerSectionRef("analysis")}
-            style={panelCardStyle}
-          >
+          <section style={panelCardStyle}>
             <div style={sectionTitleStyle}>Spatial Analysis</div>
             <div
               style={{
@@ -2867,11 +2248,7 @@ export default function ArcGISWidgets() {
             )}
           </section>
 
-          <section
-            className="ops-card"
-            ref={registerSectionRef("data")}
-            style={panelCardStyle}
-          >
+          <section style={panelCardStyle}>
             <div style={sectionTitleStyle}>Feature Editing (CRUD)</div>
             <div style={{ fontSize: 11, color: "#475569", marginBottom: 8 }}>
               Uses <code>FeatureLayer.applyEdits</code> on the editable features
@@ -3014,11 +2391,7 @@ export default function ArcGISWidgets() {
             )}
           </section>
 
-          <section
-            className="ops-card"
-            ref={registerSectionRef("geocode")}
-            style={panelCardStyle}
-          >
+          <section style={panelCardStyle}>
             <div style={sectionTitleStyle}>Forward Geocoding</div>
 
             <AddressSearchInput
@@ -3066,7 +2439,7 @@ export default function ArcGISWidgets() {
             )}
           </section>
 
-          <section className="ops-card" style={panelCardStyle}>
+          <section style={panelCardStyle}>
             <div style={sectionTitleStyle}>Reverse Geocoding</div>
             <div style={{ display: "flex", gap: 6 }}>
               <input
@@ -3119,7 +2492,7 @@ export default function ArcGISWidgets() {
             )}
           </section>
 
-          <section className="ops-card" style={panelCardStyle}>
+          <section style={panelCardStyle}>
             <div style={sectionTitleStyle}>Batch Geocoding</div>
             <textarea
               value={batchInput}
@@ -3162,11 +2535,7 @@ export default function ArcGISWidgets() {
             )}
           </section>
 
-          <section
-            className="ops-card"
-            ref={registerSectionRef("routing")}
-            style={panelCardStyle}
-          >
+          <section style={panelCardStyle}>
             <div style={sectionTitleStyle}>Routing & Directions</div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -3280,7 +2649,7 @@ export default function ArcGISWidgets() {
             )}
           </section>
 
-          <section className="ops-card" style={panelCardStyle}>
+          <section style={panelCardStyle}>
             <div style={sectionTitleStyle}>Selected Feature</div>
             {selectedFeature ? (
               <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.5 }}>
@@ -3299,11 +2668,7 @@ export default function ArcGISWidgets() {
             )}
           </section>
 
-          <section
-            className="ops-card"
-            ref={registerSectionRef("status")}
-            style={panelCardStyle}
-          >
+          <section style={panelCardStyle}>
             <div style={sectionTitleStyle}>System Status</div>
             <div style={{ fontSize: 12, color: "#334155", marginBottom: 6 }}>
               {mapLoaded ? "Map ready" : "Loading map..."}
@@ -3358,7 +2723,6 @@ export default function ArcGISWidgets() {
         </aside>
 
         <div
-          className="ops-map-panel"
           style={{
             position: "relative",
             flex: "1 1 520px",
@@ -3378,7 +2742,6 @@ export default function ArcGISWidgets() {
 
           {!mapLoaded && (
             <div
-              className="ops-map-loading"
               style={{
                 position: "absolute",
                 inset: 0,
@@ -3396,136 +2759,6 @@ export default function ArcGISWidgets() {
           )}
         </div>
       </div>
-
-      <style jsx>{`
-        .ops-console-shell {
-          position: relative;
-        }
-
-        .ops-console-shell::before {
-          content: "";
-          position: absolute;
-          inset: 0;
-          background:
-            radial-gradient(
-              circle at 18% 16%,
-              rgba(45, 212, 191, 0.1),
-              transparent 42%
-            ),
-            radial-gradient(
-              circle at 82% 84%,
-              rgba(56, 189, 248, 0.12),
-              transparent 44%
-            );
-          pointer-events: none;
-        }
-
-        .ops-console-sidebar {
-          position: relative;
-          z-index: 2;
-        }
-
-        .ops-hero-card {
-          border-color: rgba(15, 118, 110, 0.28) !important;
-          background: linear-gradient(
-            180deg,
-            #f0fdfa 0%,
-            #ffffff 100%
-          ) !important;
-        }
-
-        .ops-card {
-          scroll-margin-top: 18px;
-        }
-
-        .ops-console-sidebar :global(button) {
-          border: 1px solid #cbd5e1;
-          border-radius: 8px;
-          background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-          color: #0f172a;
-          padding: 7px 10px;
-          font-size: 12px;
-          font-weight: 700;
-          letter-spacing: 0.1px;
-          transition:
-            transform 0.15s ease,
-            box-shadow 0.2s ease,
-            border-color 0.2s ease;
-          cursor: pointer;
-        }
-
-        .ops-console-sidebar :global(button:hover:not(:disabled)) {
-          transform: translateY(-1px);
-          border-color: #0f766e;
-          box-shadow: 0 8px 14px rgba(15, 23, 42, 0.12);
-        }
-
-        .ops-console-sidebar :global(button:disabled) {
-          cursor: not-allowed;
-          opacity: 0.55;
-          transform: none;
-          box-shadow: none;
-        }
-
-        .ops-console-sidebar :global(input),
-        .ops-console-sidebar :global(textarea) {
-          border: 1px solid #cbd5e1;
-          border-radius: 8px;
-          background: #ffffff;
-          color: #0f172a;
-          outline: none;
-          transition:
-            border-color 0.18s ease,
-            box-shadow 0.18s ease;
-        }
-
-        .ops-console-sidebar :global(input:focus),
-        .ops-console-sidebar :global(textarea:focus) {
-          border-color: #14b8a6;
-          box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.2);
-        }
-
-        .ops-map-panel {
-          position: relative;
-          z-index: 1;
-        }
-
-        .ops-map-panel::after {
-          content: "";
-          position: absolute;
-          inset: 0;
-          border-left: 1px solid rgba(15, 23, 42, 0.08);
-          pointer-events: none;
-        }
-
-        .ops-map-loading {
-          animation: pulse 1.8s ease-in-out infinite;
-        }
-
-        @keyframes pulse {
-          0%,
-          100% {
-            opacity: 1;
-          }
-          50% {
-            opacity: 0.78;
-          }
-        }
-
-        @media (max-width: 1100px) {
-          .ops-console-sidebar {
-            flex: 1 1 100% !important;
-            width: 100% !important;
-            max-height: none !important;
-            border-right: none !important;
-            border-bottom: 1px solid #dbe2ea;
-          }
-
-          .ops-map-panel {
-            min-height: 560px !important;
-          }
-        }
-      `}</style>
     </>
   );
 }
